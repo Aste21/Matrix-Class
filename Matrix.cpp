@@ -15,16 +15,24 @@ public:
         elements[0][0] = value;
     }
 
-    MatrixData(int numcols, int numrows) : cols(numcols), rows(numrows), referenceCount(1)
+    MatrixData(int numcols, int numrows) : cols(numcols), rows(numrows), referenceCount(0)
     {
-        elements = new int *[cols];
-        for (int i = 0; i < cols; ++i)
+        if (numcols > 0 && numrows > 0)
         {
-            elements[i] = new int[rows];
-            for (int j = 0; j < rows; ++j)
+            referenceCount += 1;
+            elements = new int *[cols];
+            for (int i = 0; i < cols; ++i)
             {
-                elements[i][j] = 0;
+                elements[i] = new int[rows];
+                for (int j = 0; j < rows; ++j)
+                {
+                    elements[i][j] = 0;
+                }
             }
+        }
+        else
+        {
+            elements = NULL;
         }
     }
 
@@ -69,7 +77,6 @@ public:
         {
             return *this;
         }
-        // this->~MatrixData();
         delete this;
         cols = other.cols;
         rows = other.rows;
@@ -106,6 +113,23 @@ public:
 private:
 };
 
+Matrix::CrefMatrix::CrefMatrix(Matrix *matrixNew, int xNew, int yNew) : matrix(matrixNew), x(xNew), y(yNew){};
+
+Matrix::CrefMatrix::operator double()
+{
+    matrix->data = matrix->data->detach();
+    return matrix->data->elements[x - 1][y - 1];
+}
+
+Matrix::CrefMatrix &Matrix::CrefMatrix::operator=(double value)
+{
+    if (matrix->data->referenceCount > 1)
+    {
+        matrix->data = matrix->data->detach();
+    }
+    matrix->data->elements[x - 1][y - 1] = value;
+    return *this;
+}
 Matrix::Matrix()
 {
     data = new MatrixData(0, 0);
@@ -124,7 +148,7 @@ Matrix::Matrix(const Matrix &other)
 
 Matrix::~Matrix()
 {
-    if (--data->referenceCount == 0)
+    if (--data->referenceCount <= 0)
         delete data;
 }
 
@@ -133,7 +157,11 @@ Matrix &Matrix::operator=(const Matrix &other)
     if (this != &other)
     {
         other.data->referenceCount++;
-        if (--data->referenceCount == 0)
+        if (data->referenceCount == 0)
+        {
+            delete data;
+        }
+        else if (--data->referenceCount == 0)
         {
             delete data;
         }
@@ -179,7 +207,7 @@ Matrix &Matrix::operator+=(const Matrix &other)
 Matrix &Matrix::operator-=(const Matrix &other)
 {
     checkSizeOfMatrix(other);
-    MatrixData *result = new MatrixData(getRows(), getColumns(), data->referenceCount, data->elements);
+    MatrixData *result = new MatrixData(getRows(), getColumns(), 1, data->elements);
     for (int i = 0; i < other.data->cols; i++)
     {
         for (int j = 0; j < other.data->rows; j++)
@@ -199,7 +227,7 @@ Matrix &Matrix::operator*=(const Matrix &other)
 {
     checkSizeOfMatrix(other);
 
-    MatrixData *result = new MatrixData(getRows(), getColumns(), data->referenceCount, data->elements);
+    MatrixData *result = new MatrixData(getRows(), getColumns(), 1, data->elements);
 
     for (int i = 0; i < getRows(); ++i)
     {
@@ -288,7 +316,7 @@ std::istream &operator>>(std::istream &is, Matrix &matrix)
     }
 
     matrix = temp;
-    
+
     return is;
 }
 
@@ -322,11 +350,6 @@ Matrix &Matrix::readMatrixFromFile(const std::string fileName)
 
     inputFile.close();
 
-    if (--data->referenceCount == 0)
-    {
-        delete data;
-    }
-
     *this = result;
 
     return *this;
@@ -338,11 +361,10 @@ int Matrix::operator()(int row, int col) const
     return data->elements[row - 1][col - 1];
 }
 
-int &Matrix::operator()(int row, int col)
+Matrix::CrefMatrix Matrix::operator()(int row, int col)
 {
     checkIndex(col, row);
-    data = data->detach();
-    return data->elements[row - 1][col - 1];
+    return CrefMatrix(this, row, col);
 }
 
 int Matrix::getRows() const
