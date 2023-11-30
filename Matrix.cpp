@@ -28,6 +28,19 @@ public:
         }
     }
 
+    MatrixData(int numcols, int numrows, int secondReferenceCount, int **otherElements) : cols(numcols), rows(numrows), referenceCount(secondReferenceCount)
+    {
+        elements = new int *[cols];
+        for (int i = 0; i < cols; ++i)
+        {
+            elements[i] = new int[rows];
+            for (int j = 0; j < rows; ++j)
+            {
+                elements[i][j] = otherElements[i][j];
+            }
+        }
+    }
+
     MatrixData(const MatrixData &other) : cols(other.cols), rows(other.rows), referenceCount(other.referenceCount)
     {
         elements = new int *[cols];
@@ -56,7 +69,8 @@ public:
         {
             return *this;
         }
-        this->~MatrixData();
+        // this->~MatrixData();
+        delete this;
         cols = other.cols;
         rows = other.rows;
         elements = new int *[cols];
@@ -105,7 +119,7 @@ Matrix::Matrix(int cols, int rows)
 Matrix::Matrix(const Matrix &other)
 {
     other.data->referenceCount++;
-    data = new MatrixData(*other.data);
+    data = other.data;
 }
 
 Matrix::~Matrix()
@@ -119,114 +133,73 @@ Matrix &Matrix::operator=(const Matrix &other)
     if (this != &other)
     {
         other.data->referenceCount++;
-        MatrixData *newData = new MatrixData(*(other.data));
-        if((data->referenceCount-1) == 0)
+        if (--data->referenceCount == 0)
         {
             delete data;
         }
-        data = newData;
+        data = other.data;
     }
     return *this;
 }
 
 Matrix operator+(const Matrix &lhs, const Matrix &rhs)
 {
-    if (!lhs.data->isEqualSize(*rhs.data))
-    {
-        throw WrongSizeOfMatrixException();
-    }
-    Matrix result = lhs;
-    for (int i = 0; i < result.data->cols; i++)
-    {
-        for (int j = 0; j < result.data->rows; j++)
-        {
-            result.data->elements[i][j] += rhs.data->elements[i][j];
-        }
-    }
-    return result;
+    return Matrix(lhs) += rhs;
 }
 
 Matrix operator-(const Matrix &lhs, const Matrix &rhs)
 {
-    if (!lhs.data->isEqualSize(*rhs.data))
-    {
-        throw WrongSizeOfMatrixException();
-    }
-    Matrix result = lhs;
-    for (int i = 0; i < result.data->cols; i++)
-    {
-        for (int j = 0; j < result.data->rows; j++)
-        {
-            result.data->elements[i][j] -= rhs.data->elements[i][j];
-        }
-    }
-    return result;
+    return Matrix(lhs) -= rhs;
 }
 
 Matrix operator*(const Matrix &lhs, const Matrix &rhs)
 {
-    if (lhs.getColumns() != rhs.getRows())
-    {
-        throw WrongSizeOfMatrixException();
-    }
-
-    Matrix result(lhs.getRows(), rhs.getColumns());
-
-    for (int i = 0; i < lhs.getRows(); ++i)
-    {
-        for (int j = 0; j < rhs.getColumns(); ++j)
-        {
-            for (int k = 0; k < lhs.getColumns(); ++k)
-            {
-                result.data->elements[i][j] += lhs.data->elements[i][k] * rhs.data->elements[k][j];
-            }
-        }
-    }
-
-    return result;
+    return Matrix(lhs) *= rhs;
 }
-
 
 Matrix &Matrix::operator+=(const Matrix &other)
 {
-    if (!data->isEqualSize(*other.data))
-    {
-        throw WrongSizeOfMatrixException();
-    }
+    checkSizeOfMatrix(other);
+    MatrixData *result = new MatrixData(getRows(), getColumns(), 1, data->elements);
     for (int i = 0; i < other.data->cols; i++)
     {
         for (int j = 0; j < other.data->rows; j++)
         {
-            data->elements[i][j] += other.data->elements[i][j];
+            (*result).elements[i][j] += other.data->elements[i][j];
         }
     }
+    if (--data->referenceCount == 0)
+    {
+        delete data;
+    }
+    data = result;
     return *this;
 }
 
 Matrix &Matrix::operator-=(const Matrix &other)
 {
-    if (!data->isEqualSize(*other.data))
-    {
-        throw WrongSizeOfMatrixException();
-    }
+    checkSizeOfMatrix(other);
+    MatrixData *result = new MatrixData(getRows(), getColumns(), data->referenceCount, data->elements);
     for (int i = 0; i < other.data->cols; i++)
     {
         for (int j = 0; j < other.data->rows; j++)
         {
-            data->elements[i][j] -= other.data->elements[i][j];
+            (*result).elements[i][j] -= other.data->elements[i][j];
         }
     }
+    if (--data->referenceCount == 0)
+    {
+        delete data;
+    }
+    data = result;
     return *this;
 }
 
-Matrix& Matrix::operator*=(const Matrix& other)
+Matrix &Matrix::operator*=(const Matrix &other)
 {
-    if (getColumns() != other.getRows())
-    {
-        throw WrongSizeOfMatrixException();
-    }
+    checkSizeOfMatrix(other);
 
-    Matrix result(getRows(), other.getColumns());
+    MatrixData *result = new MatrixData(getRows(), getColumns(), data->referenceCount, data->elements);
 
     for (int i = 0; i < getRows(); ++i)
     {
@@ -234,28 +207,32 @@ Matrix& Matrix::operator*=(const Matrix& other)
         {
             for (int k = 0; k < getColumns(); ++k)
             {
-                result.data->elements[i][j] += this->data->elements[i][k] * other.data->elements[k][j];
+                (*result).elements[i][j] += this->data->elements[i][k] * other.data->elements[k][j];
             }
         }
     }
 
-    *this = result;
+    if (--data->referenceCount == 0)
+    {
+        delete data;
+    }
+
+    data = result;
 
     return *this;
 }
 
-
-bool operator==(const Matrix& lhs, const Matrix& rhs)
+bool operator==(const Matrix &lhs, const Matrix &rhs)
 {
-    if(!lhs.data->isEqualSize(*rhs.data))
+    if (!lhs.data->isEqualSize(*rhs.data))
     {
         return false;
     }
-    for(int i =0;i < lhs.data->cols;i++)
+    for (int i = 0; i < lhs.data->cols; i++)
     {
-        for(int j = 0;j < lhs.data->rows;j++)
+        for (int j = 0; j < lhs.data->rows; j++)
         {
-            if(lhs.data->elements[i][j] != rhs.data->elements[i][j])
+            if (lhs.data->elements[i][j] != rhs.data->elements[i][j])
             {
                 return false;
             }
@@ -263,14 +240,18 @@ bool operator==(const Matrix& lhs, const Matrix& rhs)
     }
     return true;
 }
-bool operator!=(const Matrix& lhs, const Matrix& rhs)
+
+bool operator!=(const Matrix &lhs, const Matrix &rhs)
 {
     return !(lhs == rhs);
 }
 
-std::ostream& operator<<(std::ostream& os, const Matrix& matrix) {
-    for (int i = 0; i < matrix.data->cols; ++i) {
-        for (int j = 0; j < matrix.data->rows; ++j) {
+std::ostream &operator<<(std::ostream &os, const Matrix &matrix)
+{
+    for (int i = 0; i < matrix.data->cols; ++i)
+    {
+        for (int j = 0; j < matrix.data->rows; ++j)
+        {
             os << matrix.data->elements[i][j] << ' ';
         }
         os << '\n';
@@ -282,10 +263,16 @@ std::istream &operator>>(std::istream &is, Matrix &matrix)
 {
     int cols, rows;
 
-    std::cout<<"Input number of rows: ";
-    is >> rows;
-    std::cout<<"\nInput number of columns: ";
-    is >> cols;
+    std::cout << "Input number of rows: ";
+    if (!(is >> rows))
+    {
+        throw WrongInputTypeException();
+    }
+    std::cout << "Input number of columns: ";
+    if (!(is >> cols))
+    {
+        throw WrongInputTypeException();
+    }
 
     Matrix temp(cols, rows);
 
@@ -293,24 +280,69 @@ std::istream &operator>>(std::istream &is, Matrix &matrix)
     {
         for (int j = 0; j < rows; ++j)
         {
-            is >> temp.data->elements[i][j];
+            if (!(is >> temp.data->elements[i][j]))
+            {
+                throw WrongInputTypeException();
+            }
         }
     }
 
     matrix = temp;
-
+    
     return is;
 }
 
+Matrix &Matrix::readMatrixFromFile(const std::string fileName)
+{
+    std::ifstream inputFile(fileName);
+    int cols, rows;
+
+    if (!inputFile.is_open())
+    {
+        throw ReadFromFileErrorException();
+    }
+
+    if (!(inputFile >> rows >> cols))
+    {
+        throw WrongInputTypeException();
+    }
+
+    Matrix result(rows, cols);
+
+    for (int i = 0; i < rows; i++)
+    {
+        for (int j = 0; j < cols; j++)
+        {
+            if (!(inputFile >> result.data->elements[i][j]))
+            {
+                throw WrongInputTypeException();
+            }
+        }
+    }
+
+    inputFile.close();
+
+    if (--data->referenceCount == 0)
+    {
+        delete data;
+    }
+
+    *this = result;
+
+    return *this;
+}
 
 int Matrix::operator()(int row, int col) const
 {
-    return data->elements[row-1][col-1];
+    checkIndex(col, row);
+    return data->elements[row - 1][col - 1];
 }
 
 int &Matrix::operator()(int row, int col)
 {
-    return data->elements[row-1][col-1];
+    checkIndex(col, row);
+    data = data->detach();
+    return data->elements[row - 1][col - 1];
 }
 
 int Matrix::getRows() const
@@ -321,4 +353,33 @@ int Matrix::getRows() const
 int Matrix::getColumns() const
 {
     return data->rows;
+}
+
+int Matrix::getReferenceCount() const
+{
+    return data->referenceCount;
+}
+
+void Matrix::checkSizeOfMatrix(const Matrix &other) const
+{
+    if (getColumns() != other.getColumns() || getRows() != other.getRows())
+    {
+        throw DifferentSizesOfMatrixesException();
+    }
+}
+
+void Matrix::checkSizeOfMatrixMultiplication(const Matrix &other) const
+{
+    if (getColumns() != other.getRows())
+    {
+        throw DifferentSizesOfMatrixesException();
+    }
+}
+
+void Matrix::checkIndex(int col, int row) const
+{
+    if (row > data->rows || row <= 0 || col > data->cols || col <= 0)
+    {
+        throw IndexOutOfRangeException();
+    }
 }
